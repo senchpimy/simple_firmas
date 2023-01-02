@@ -1,16 +1,47 @@
 package main
 import (
         "log"
+	"bufio"
+	"fmt"
         "net/http"
         "os"
         "io/ioutil"
         "strings"
+	"html/template"
 )
 
+const maxSize = 1 * 1024 * 1024; //one megaByte
+const path = "firmas";
 func main() {
-        LimitFile("firmas","hola",49999)
+        //LimitFile("firmas","hola",49999)
+
         fs := http.FileServer(http.Dir("."))
-        http.Handle("/", fs)
+        http.Handle("/files", fs)
+
+        http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method{
+					case "GET":
+						tpl, err := template.ParseFiles("index.html")
+						if err != nil {
+							http.Error(w, err.Error(), http.StatusInternalServerError)
+							return
+						}
+	
+						data,err:=readLines()
+						if err != nil {return}
+	
+						err = tpl.Execute(w, data)
+						if err != nil {
+							http.Error(w, err.Error(), http.StatusInternalServerError)
+							return
+						}
+					case "POST":
+						fmt.Println("Mensaje Recibido")
+						message:=r.FormValue("message")
+						LimitFile(message)
+							http.Redirect(w, r, "/", http.StatusSeeOther)
+				}
+			     })
 
         log.Print("Listening on :3001..")
         err := http.ListenAndServe(":3001", nil)
@@ -19,13 +50,13 @@ func main() {
         }
 }
 
-func LimitFile(file, newdata string, maxSize int64) error {
+func LimitFile(newdata string) error {
+	file:=path
         // get file size
         info, err := os.Stat(file)
         if err != nil {
                 return err
         }
-
         size := info.Size()
         if size > maxSize {
                 // read the file
@@ -38,7 +69,7 @@ func LimitFile(file, newdata string, maxSize int64) error {
                 // delete the first line
                 lines = lines[1:]
                 // write the remaining lines back to the file
-                lines = appens(lines, newdata+"\n")
+                lines = append(lines, newdata+"\n")
                 err = ioutil.WriteFile(file, []byte(strings.Join(lines, "\n")), 0644)
                 if err != nil {
                         return err
@@ -59,8 +90,20 @@ func LimitFile(file, newdata string, maxSize int64) error {
                 }
         }
 
-                }
-
         return nil
 }
 
+func readLines() ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	return lines, scanner.Err()
+}
